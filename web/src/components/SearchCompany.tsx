@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Field } from "./ui/field";
 import { Input } from "./ui/input";
-import { supabase } from "~/supabase/supabaseClient";
 import { Building2 } from "lucide-react";
-import { Spinner } from "./ui/spinner";
+import staticData from "~/data/problems.json";
 
 type CompanyResult = {
   id: number;
@@ -16,18 +15,13 @@ export default function SearchCompany() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CompanyResult[]>([]);
-  const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     }
@@ -35,39 +29,19 @@ export default function SearchCompany() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Debounced search
   useEffect(() => {
     if (!query.trim()) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
+    debounceRef.current = setTimeout(() => {
+      const q = query.trim().toLowerCase();
+      const filtered = staticData.companies
+        .filter((c) => c.name.toLowerCase().includes(q))
+        .slice(0, 8)
+        .map((c) => ({ id: c.id, name: c.name, problem_count: c.problemCount }));
 
-      const { data, error } = await supabase
-        .from("companies")
-        .select(
-          `
-          id,
-          name,
-          company_problems(count)
-        `,
-        )
-        .ilike("name", `%${query.trim()}%`)
-        .order("name")
-        .limit(8);
-
-      setLoading(false);
-
-      if (error || !data) return;
-
-      const mapped: CompanyResult[] = data.map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        problem_count: c.company_problems[0]?.count ?? 0,
-      }));
-
-      setResults(mapped);
+      setResults(filtered);
       setOpen(true);
     }, 400);
 
@@ -79,7 +53,7 @@ export default function SearchCompany() {
   function handleSelect(company: CompanyResult) {
     setOpen(false);
     setQuery("");
-    navigate(`/company/${company.id}`);
+    navigate(`/company/${encodeURIComponent(company.name)}`);
   }
 
   return (
@@ -101,16 +75,11 @@ export default function SearchCompany() {
             onFocus={() => results.length > 0 && setOpen(true)}
           />
         </Field>
-        {loading && <Spinner className="absolute top-2 right-2" />}
       </div>
 
       {open && (
         <div className="bg-background border-border absolute top-full z-50 mt-1 w-full overflow-hidden rounded-md border shadow-md">
-          {loading ? (
-            <div className="text-muted-foreground px-3 py-2 text-sm">
-              Searching…
-            </div>
-          ) : results.length === 0 ? (
+          {results.length === 0 ? (
             <div className="text-muted-foreground px-3 py-2 text-sm">
               No companies found
             </div>
@@ -124,13 +93,10 @@ export default function SearchCompany() {
                   >
                     <div className="flex items-center gap-2">
                       <Building2 className="text-muted-foreground h-4 w-4 shrink-0" />
-                      <span className="text-primary text-sm">
-                        {company.name}
-                      </span>
+                      <span className="text-primary text-sm">{company.name}</span>
                     </div>
                     <span className="text-muted-foreground shrink-0 text-xs">
-                      {company.problem_count}{" "}
-                      {company.problem_count === 1 ? "problem" : "problems"}
+                      {company.problem_count} {company.problem_count === 1 ? "problem" : "problems"}
                     </span>
                   </button>
                 </li>
