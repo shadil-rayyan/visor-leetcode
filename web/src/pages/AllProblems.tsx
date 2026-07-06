@@ -11,22 +11,19 @@ import {
   themeQuartz,
 } from "ag-grid-community";
 
-import { supabase } from "~/supabase/supabaseClient";
-import { ArrowUpRight, CheckCircle2, EyeOff, Eye } from "lucide-react";
+import { ArrowUpRight, EyeOff, Eye } from "lucide-react";
 import { useAppContext } from "~/context/useAppContext";
 import { Badge } from "~/components/ui/badge";
 import { getCompanyColor } from "~/utils/companyColors";
 import { cn } from "~/lib/utils";
 import { Separator } from "~/components/ui/separator";
 import { TagFilterDropdown } from "~/components/TagFilterDropdown";
+import { CompanyFilterDropdown } from "~/components/CompanyFilterDropdown";
+import staticData from "~/data/problems.json";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-/* ─────────────────────────────────────────────────────────── */
-/* Types */
-/* ─────────────────────────────────────────────────────────── */
 type Difficulty = "Easy" | "Medium" | "Hard";
-
 type Problem = {
   id: number;
   title: string;
@@ -36,20 +33,10 @@ type Problem = {
   frequency: number | null;
   tags: string[];
   other_companies: string[];
-  completed: boolean;
-  timeframe_tag: TimeFrameTag | null;
-  isToggling?: boolean; // UI-only state to indicate if we're currently toggling completion status
 };
 
-type TimeFrameTag = "six-months" | "three-months" | "thirty-days";
-
-/* ─────────────────────────────────────────────────────────── */
-/* Constants */
-/* ─────────────────────────────────────────────────────────── */
 const DIFFICULTY_ORDER: Record<string, number> = {
-  Easy: 0,
-  Medium: 1,
-  Hard: 2,
+  Easy: 0, Medium: 1, Hard: 2,
 };
 
 const DIFFICULTY_STYLES: Record<string, string> = {
@@ -57,149 +44,6 @@ const DIFFICULTY_STYLES: Record<string, string> = {
   Medium: "text-amber-500 bg-amber-500/10",
   Hard: "text-rose-500 bg-rose-500/10",
 };
-
-/* ─────────────────────────────────────────────────────────── */
-/* Helpers */
-/* ─────────────────────────────────────────────────────────── */
-async function fetchAllProblems() {
-  const PAGE_SIZE = 4000;
-  let from = 0;
-  const allRows: any[] = [];
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("problems")
-      .select(
-        `
-          id,
-          title,
-          url,
-          difficulty,
-          acceptance,
-          frequency,
-          problem_tags ( tag ),
-          company_problems (
-            company:companies ( id, name ),
-            timeframe_tag
-          )
-        `,
-      )
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error || !data) break;
-
-    allRows.push(...data);
-
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return allRows;
-}
-
-/* ─────────────────────────────────────────────────────────── */
-/* Cell Renderers */
-/* ─────────────────────────────────────────────────────────── */
-function CompletedCellRenderer(props: ICellRendererParams<Problem>) {
-  const { value, data, api } = props;
-
-  if (!data) return null;
-
-  const isLoading = (data as any).isToggling;
-
-  const handleToggle = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    if (isLoading) return;
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.user) {
-      alert("Please sign in to mark problems as completed.");
-      return;
-    }
-
-    const userId = session.user.id;
-    const problemId = data.id;
-    const newCompleted = !value;
-
-    // Show loader immediately
-    const loadingRow = { ...data, isToggling: true };
-
-    api.applyTransaction({
-      update: [loadingRow],
-    });
-
-    // 👇 FORCE CELL REFRESH
-    api.refreshCells({
-      rowNodes: [props.node],
-      force: true,
-    });
-    try {
-      if (newCompleted) {
-        const { error } = await supabase
-          .from("user_completed_problems")
-          .insert({
-            user_id: userId,
-            problem_id: problemId,
-          });
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("user_completed_problems")
-          .delete()
-          .eq("user_id", userId)
-          .eq("problem_id", problemId);
-
-        if (error) throw error;
-      }
-
-      // Success → update completed state
-      api.applyTransaction({
-        update: [
-          {
-            ...data,
-            completed: newCompleted,
-            isToggling: false,
-          },
-        ],
-      });
-    } catch (err) {
-      console.error("Toggle failed:", err);
-
-      // Rollback + remove loader
-      api.applyTransaction({
-        update: [
-          {
-            ...data,
-            completed: value,
-            isToggling: false,
-          },
-        ],
-      });
-    }
-  };
-
-  return (
-    <div
-      className={`flex h-full items-center ${
-        isLoading ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-      }`}
-      onClick={handleToggle}
-    >
-      {isLoading ? (
-        <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
-      ) : value ? (
-        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-      ) : (
-        <div className="border-border h-4 w-4 rounded-full border" />
-      )}
-    </div>
-  );
-}
 
 function TitleCellRenderer({ data }: ICellRendererParams<Problem>) {
   if (!data) return null;
@@ -247,9 +91,7 @@ function AcceptanceCellRenderer({ value }: ICellRendererParams) {
 function FrequencyCellRenderer({ value }: ICellRendererParams) {
   if (value == null) {
     return (
-      <div className="text-muted-foreground flex h-full items-center text-xs">
-        —
-      </div>
+      <div className="text-muted-foreground flex h-full items-center text-xs">—</div>
     );
   }
   return (
@@ -269,16 +111,11 @@ function FrequencyCellRenderer({ value }: ICellRendererParams) {
 
 function TagsTooltip({ value }: ITooltipParams<Problem, string[]>) {
   if (!value || value.length === 0) return null;
-
   return (
     <div className="bg-background rounded-md border p-2 shadow-lg">
       <div className="flex max-w-xs flex-wrap gap-1">
         {value.map((tag) => (
-          <Badge
-            key={tag}
-            variant="secondary"
-            className="text-muted-foreground text-md"
-          >
+          <Badge key={tag} variant="secondary" className="text-muted-foreground text-md">
             {tag}
           </Badge>
         ))}
@@ -290,19 +127,14 @@ function TagsTooltip({ value }: ITooltipParams<Problem, string[]>) {
 function TagsCellRenderer({ value }: ICellRendererParams<Problem, string[]>) {
   if (!value || value.length === 0) return null;
   return (
-    <div className="gap-y-0. flex h-full flex-wrap items-center gap-x-1">
+    <div className="flex h-full flex-wrap items-center gap-x-1 gap-y-0">
       {value.slice(0, 3).map((tag) => (
-        <Badge
-          variant={"secondary"}
-          className="text-muted-foreground my-0 px-2"
-        >
+        <Badge variant="secondary" className="text-muted-foreground my-0 px-2" key={tag}>
           {tag}
         </Badge>
       ))}
       {value.length > 3 && (
-        <span className="text-muted-foreground text-[10px]">
-          +{value.length - 3}
-        </span>
+        <span className="text-muted-foreground text-[10px]">+{value.length - 3}</span>
       )}
     </div>
   );
@@ -310,19 +142,11 @@ function TagsCellRenderer({ value }: ICellRendererParams<Problem, string[]>) {
 
 function OtherCompaniesTooltip({ value }: ITooltipParams<Problem, string[]>) {
   if (!value || value.length === 0) return null;
-
   return (
     <div className="bg-background rounded-md border p-2 shadow-lg">
       <div className="flex max-w-xs flex-wrap gap-1">
         {value.map((name) => (
-          <Badge
-            key={name}
-            variant="outline"
-            className={cn(
-              "text-muted-foreground text-md",
-              getCompanyColor(name),
-            )}
-          >
+          <Badge key={name} variant="outline" className={cn("text-muted-foreground text-md", getCompanyColor(name))}>
             {name}
           </Badge>
         ))}
@@ -331,37 +155,38 @@ function OtherCompaniesTooltip({ value }: ITooltipParams<Problem, string[]>) {
   );
 }
 
-function OtherCompaniesCellRenderer({
-  value,
-}: ICellRendererParams<Problem, string[]>) {
+function OtherCompaniesCellRenderer({ value }: ICellRendererParams<Problem, string[]>) {
   if (!value || value.length === 0) return null;
   return (
     <div className="flex h-full flex-wrap items-center gap-x-0.5 gap-y-0">
       {value.slice(0, 3).map((name) => (
-        <Badge
-          variant={"outline"}
-          key={name}
-          className={cn("text-muted-foreground my-0", getCompanyColor(name))}
-        >
+        <Badge variant="outline" key={name} className={cn("text-muted-foreground my-0", getCompanyColor(name))}>
           {name}
         </Badge>
       ))}
       {value.length > 3 && (
-        <span className="text-muted-foreground text-[10px]">
-          +{value.length - 3}
-        </span>
+        <span className="text-muted-foreground text-[10px]">+{value.length - 3}</span>
       )}
     </div>
   );
 }
 
-/* ------------------- MAIN COMPONENT ------------------- */
 export default function AllProblems() {
   const { theme } = useAppContext();
 
-  const [problems, setProblems] = useState<Problem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // data
+  const problems: Problem[] = useMemo(() => {
+    return staticData.problems.map((p) => ({
+      id: p.id,
+      title: p.title ?? "Untitled",
+      url: p.url ?? null,
+      difficulty: (p.difficulty as Difficulty) ?? null,
+      acceptance: p.acceptance ?? null,
+      frequency: p.frequency ?? null,
+      tags: p.tags ?? [],
+      other_companies: p.companies?.map((c) => c.name) ?? [],
+    }));
+  }, []);
 
   const [search, setSearch] = useState("");
   const [diffFilter, setDiffFilter] = useState<Difficulty | "All">("All");
@@ -370,163 +195,72 @@ export default function AllProblems() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagMatchMode, setTagMatchMode] = useState<"AND" | "OR">("AND");
 
-  const [hideCompleted, setHideCompleted] = useState(false);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+
+  const allCompanies = useMemo(() => {
+    const names = new Set<string>();
+    for (const p of problems) {
+      for (const c of p.other_companies) names.add(c);
+    }
+    return [...names].sort();
+  }, [problems]);
 
   const gridRef = useRef<AgGridReact<Problem>>(null);
 
-  // fetch
+  // extract unique tags from data
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-      setError(null);
-
-      const data = await fetchAllProblems();
-
-      if (!data) {
-        setError("Failed to fetch problems.");
-        setLoading(false);
-        return;
-      }
-
-      let assembled: Problem[] = data.map((p: any) => ({
-        id: p.id,
-        title: p.title ?? "Untitled",
-        url: p.url ?? null,
-        difficulty: p.difficulty ?? null,
-        acceptance: p.acceptance ?? null,
-        frequency: p.frequency ?? null,
-        tags: p.problem_tags?.map((t: any) => t.tag) ?? [],
-        other_companies:
-          p.company_problems
-            ?.map((cp: any) => cp.company?.name)
-            .filter(Boolean) ?? [],
-        completed: false,
-        timeframe_tag: null, // not needed anymore
-        isToggling: false,
-      }));
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        const { data: completedRows } = await supabase
-          .from("user_completed_problems")
-          .select("problem_id")
-          .eq("user_id", session.user.id);
-
-        const completedSet = new Set(completedRows?.map((r) => r.problem_id));
-
-        assembled = assembled.map((p) => ({
-          ...p,
-          completed: completedSet.has(p.id),
-        }));
-      }
-
-      setProblems(assembled);
-      setLoading(false);
+    const tagSet = new Set<string>();
+    for (const p of staticData.problems) {
+      for (const t of p.tags) tagSet.add(t);
     }
-
-    fetchData();
+    setAllTags([...tagSet].sort());
   }, []);
 
-  useEffect(() => {
-    async function fetchTags() {
-      const { data, error } = await supabase
-        .from("unique_problem_tags")
-        .select("*");
-
-      if (error || !data) return;
-
-      setAllTags(data.map((t) => t.tag));
-    }
-
-    fetchTags();
-  }, []);
-
-  // filter - AG Grid external filter handles difficulty, tag, and hide completed; quick filter handles search
+  // filter
   useEffect(() => {
     if (!gridRef.current?.api) return;
-
-    // AG Grid external filter handles difficulty; quick filter handles search
     gridRef.current.api.setGridOption("quickFilterText", search);
     gridRef.current.api.onFilterChanged();
-  }, [search, diffFilter, selectedTags, tagMatchMode, hideCompleted]);
+  }, [search, diffFilter, selectedTags, tagMatchMode, selectedCompanies]);
 
   const isExternalFilterPresent = useCallback(() => {
-    return diffFilter !== "All" || selectedTags.length > 0 || hideCompleted;
-  }, [diffFilter, selectedTags, hideCompleted]);
+    return diffFilter !== "All" || selectedTags.length > 0 || selectedCompanies.length > 0;
+  }, [diffFilter, selectedTags, selectedCompanies]);
 
   const doesExternalFilterPass = useCallback(
     (node: { data?: Problem }) => {
       const problem = node.data;
       if (!problem) return false;
 
-      // Hide completed filter
-      if (hideCompleted && problem.completed) {
-        return false;
-      }
+      if (diffFilter !== "All" && problem.difficulty !== diffFilter) return false;
 
-      // Difficulty filter
-      if (diffFilter !== "All" && problem.difficulty !== diffFilter) {
-        return false;
-      }
-
-      // Tag filter
       if (selectedTags.length > 0) {
         const problemTags = problem.tags ?? [];
-
         if (tagMatchMode === "AND") {
-          const matchesAll = selectedTags.every((tag) =>
-            problemTags.includes(tag),
-          );
-          if (!matchesAll) return false;
+          if (!selectedTags.every((tag) => problemTags.includes(tag))) return false;
         } else {
-          const matchesAny = selectedTags.some((tag) =>
-            problemTags.includes(tag),
-          );
-          if (!matchesAny) return false;
+          if (!selectedTags.some((tag) => problemTags.includes(tag))) return false;
         }
+      }
+
+      if (selectedCompanies.length > 0) {
+        const pc = problem.other_companies ?? [];
+        if (!selectedCompanies.some((c) => pc.includes(c))) return false;
       }
 
       return true;
     },
-    [diffFilter, selectedTags, tagMatchMode, hideCompleted],
+    [diffFilter, selectedTags, tagMatchMode, selectedCompanies],
   );
 
-  /* --------------------- Column Defs -------------------- */
+  // column defs
   const columnDefs = useMemo<ColDef<Problem>[]>(
     () => [
-      {
-        field: "completed",
-        headerName: "",
-        headerComponent: () => (
-          <div
-            className="flex h-full cursor-pointer items-center justify-center"
-            title={hideCompleted ? "Show completed" : "Hide completed"}
-            onClick={() => setHideCompleted((prev) => !prev)}
-          >
-            {hideCompleted ? (
-              <EyeOff className={`h-4 w-4 text-red-500`} />
-            ) : (
-              <Eye className={`h-4 w-4`} />
-            )}
-          </div>
-        ),
-        width: 48,
-        minWidth: 48,
-        maxWidth: 48,
-        sortable: false,
-        filter: false,
-        cellRenderer: CompletedCellRenderer,
-        pinned: "left",
-      },
       {
         field: "id",
         headerName: "#",
         width: 72,
         minWidth: 60,
-        sort: null,
         comparator: (a, b) => a - b,
       },
       {
@@ -555,9 +289,10 @@ export default function AllProblems() {
       {
         field: "frequency",
         headerName: "Frequency",
-        headerTooltip: "How frequently this problem is asked at this company.",
-        width: 120,
+        headerTooltip: "How frequently this problem is asked.",
+        width: 150,
         sort: "desc",
+        filter: "agNumberColumnFilter",
         cellRenderer: FrequencyCellRenderer,
         comparator: (a, b) => (a ?? -1) - (b ?? -1),
       },
@@ -584,7 +319,7 @@ export default function AllProblems() {
         tooltipValueGetter: (params) => params.value,
       },
     ],
-    [hideCompleted],
+    [],
   );
 
   const defaultColDef = useMemo<ColDef>(
@@ -598,38 +333,18 @@ export default function AllProblems() {
     [],
   );
 
-  /* ------------------------ Stats ----------------------- */
+  // stats
   const easyCnt = problems.filter((p) => p.difficulty === "Easy").length;
   const medCnt = problems.filter((p) => p.difficulty === "Medium").length;
   const hardCnt = problems.filter((p) => p.difficulty === "Hard").length;
-  const completedCnt = problems.filter((p) => p.completed).length;
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center">
-        <div className="border-primary h-7 w-7 animate-spin rounded-full border-2 border-t-transparent" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">{error}</p>
-      </div>
-    );
-  }
 
   return (
     <div className="font-geist bg-background text-primary flex flex-col">
-      {/* Header */}
       <div className="border-border border-b px-6 py-6">
         <div className="mx-auto sm:px-8 md:px-16">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-semibold capitalize">
-                All Problems
-              </h1>
+              <h1 className="text-3xl font-semibold capitalize">All Problems</h1>
             </div>
             <div className="flex flex-col items-center">
               <div className="flex gap-6">
@@ -639,9 +354,7 @@ export default function AllProblems() {
                   { label: "Hard", count: hardCnt, style: "text-rose-500" },
                 ].map(({ label, count, style }) => (
                   <div key={label} className="text-center">
-                    <div
-                      className={`text-sm font-semibold tabular-nums sm:text-2xl ${style}`}
-                    >
+                    <div className={`text-sm font-semibold tabular-nums sm:text-2xl ${style}`}>
                       {count}
                     </div>
                     <div className="text-muted-foreground text-xs">{label}</div>
@@ -650,7 +363,7 @@ export default function AllProblems() {
               </div>
               <Separator className="mt-1.5" />
               <p className="text-muted-foreground mt-1 text-xs sm:text-sm">
-                {problems.length} problems · {completedCnt} completed
+                {problems.length} problems
               </p>
             </div>
           </div>
@@ -685,7 +398,6 @@ export default function AllProblems() {
               ))}
             </div>
             <Separator orientation="vertical" className="h-5" />
-
             <TagFilterDropdown
               allTags={allTags}
               selectedTags={selectedTags}
@@ -693,21 +405,19 @@ export default function AllProblems() {
               tagMatchMode={tagMatchMode}
               setTagMatchMode={setTagMatchMode}
             />
+            <CompanyFilterDropdown
+              allCompanies={allCompanies}
+              selectedCompanies={selectedCompanies}
+              setSelectedCompanies={setSelectedCompanies}
+            />
           </div>
         </div>
       </div>
 
       {/* AG Grid */}
       <div className="flex-1 px-6 py-4">
-        <div
-          className="max-w-9xl mx-auto"
-          style={{ height: "calc(100vh - 260px)" }}
-        >
-          <div
-            className={`h-full w-full ${
-              theme === "light" ? "ag-theme-quartz" : "ag-theme-quartz-dark"
-            }`}
-          >
+        <div className="max-w-9xl mx-auto" style={{ height: "calc(100vh - 260px)" }}>
+          <div className={`h-full w-full ${theme === "light" ? "ag-theme-quartz" : "ag-theme-quartz-dark"}`}>
             <AgGridReact
               ref={gridRef}
               rowData={problems}
@@ -717,39 +427,23 @@ export default function AllProblems() {
               tooltipShowDelay={300}
               tooltipShowMode="standard"
               headerHeight={40}
-              theme={themeQuartz
-                .withParams({
-                  cellFontFamily: "geist, sans-serif",
-                })
-                .withParams(
-                  theme === "light"
-                    ? {
-                        rowBorder: {
-                          style: "solid",
-                          width: "2px",
-                          color: "#e5e7eb",
-                        },
-                      }
-                    : {
-                        rowBorder: {
-                          style: "solid",
-                          width: "1px",
-                          color: "#2e3135",
-                        },
-                        rowHoverColor: "#151515", // charcoal-700
-                        backgroundColor: "#0a0a0a",
-                        foregroundColor: "#bfbfbf", // charcoal-100
-                        browserColorScheme: "dark", // to change scrollbar color
-                      },
-                )}
+              theme={themeQuartz.withParams({ cellFontFamily: "geist, sans-serif" }).withParams(
+                theme === "light"
+                  ? { rowBorder: { style: "solid", width: "2px", color: "#e5e7eb" } }
+                  : {
+                      rowBorder: { style: "solid", width: "1px", color: "#2e3135" },
+                      rowHoverColor: "#151515",
+                      backgroundColor: "#0a0a0a",
+                      foregroundColor: "#bfbfbf",
+                      browserColorScheme: "dark",
+                    },
+              )}
               animateRows
               suppressCellFocus
               isExternalFilterPresent={isExternalFilterPresent}
               doesExternalFilterPass={doesExternalFilterPass}
               getRowId={(params) => params.data.id.toString()}
-              onGridReady={(params) => {
-                params.api.setGridOption("quickFilterText", search);
-              }}
+              onGridReady={(params) => params.api.setGridOption("quickFilterText", search)}
             />
           </div>
         </div>

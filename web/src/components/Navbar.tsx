@@ -1,5 +1,5 @@
-import { House, LogOut, Menu, Moon, Sun, User, X } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { House, Menu, Moon, Sun, X } from "lucide-react";
+import { Link } from "react-router";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -10,22 +10,9 @@ import {
 import { useAppContext } from "~/context/useAppContext";
 import { Button } from "./ui/button";
 import { cn } from "~/lib/utils";
-import { useEffect, useState } from "react";
-import { supabase } from "~/supabase/supabaseClient";
-import type { Session } from "@supabase/supabase-js";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { Spinner } from "./ui/spinner";
+import { useState } from "react";
 import SearchCompany from "./SearchCompany";
 import GithubSvg from "~/assets/GithubSvg";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 
 export default function Navbar() {
   return (
@@ -44,21 +31,16 @@ export default function Navbar() {
 
         <div className="flex h-full items-center justify-between gap-4">
           <Link
-            to="https://github.com/hitarth-gg/visor-leetcode"
+            to="https://github.com/shadil-rayyan/visor-leetcode"
             target="_blank"
             className="hidden sm:flex"
           >
-            <Button
-              variant={"ghost"}
-              size={"icon"}
-              className="h-8 cursor-pointer"
-            >
+            <Button variant="ghost" size="icon" className="h-8 cursor-pointer">
               <GithubSvg />
             </Button>
           </Link>
           <ToggleTheme />
           <SearchCompany />
-          <AuthButton />
         </div>
       </div>
     </div>
@@ -72,8 +54,8 @@ function MobileNav() {
     <>
       <div className="mr-2 flex md:hidden">
         <Button
-          variant={"ghost"}
-          size={"icon"}
+          variant="ghost"
+          size="icon"
           className="h-8 w-8 p-0 [&>svg]:size-5"
           onClick={() => {
             setMenuOpen((prev) => {
@@ -128,103 +110,6 @@ function MobileNav() {
   );
 }
 
-export function AuthButton() {
-  const navigate = useNavigate();
-  const [session, setSession] = useState<Session | null>(null);
-  const [isSigningOut, setIsSigningOut] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAvatarUrl(data.session?.user?.user_metadata?.avatar_url ?? null);
-    });
-
-    // Keep in sync on tab focus, sign in/out events
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event: string, session: Session | null) => {
-        setSession(session);
-        setAvatarUrl(session?.user?.user_metadata?.avatar_url ?? null);
-      },
-    );
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    navigate("/sign-in");
-  }
-
-  if (session) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          {isSigningOut ? (
-            <Spinner />
-          ) : avatarUrl ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={avatarUrl} alt="" />
-                    <AvatarFallback>CN</AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-32">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      navigate("/profile");
-                    }}
-                  >
-                    Profile
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={async () => {
-                      setIsSigningOut(true);
-                      try {
-                        await handleSignOut();
-                      } finally {
-                        setIsSigningOut(false);
-                      }
-                    }}
-                    disabled={isSigningOut}
-                  >
-                    Log out
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <LogOut />
-          )}
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>Sign out</p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  return (
-    <Link to="/sign-in">
-      <Button variant={"default"} className="h-8 cursor-pointer px-3">
-        <User />
-        <p>Sign In</p>
-      </Button>
-    </Link>
-  );
-}
-
 function NavigateLink({
   title,
   path,
@@ -235,7 +120,7 @@ function NavigateLink({
   icon?: React.ReactNode;
 }) {
   return (
-    <NavigationMenuItem className="">
+    <NavigationMenuItem>
       <NavigationMenuLink
         asChild
         className={cn(
@@ -244,7 +129,7 @@ function NavigateLink({
           !title && "p-2",
         )}
       >
-        <Link className="" to={path}>
+        <Link to={path}>
           {title || icon}
         </Link>
       </NavigationMenuLink>
@@ -256,12 +141,10 @@ function ToggleTheme() {
   const { setTheme, theme } = useAppContext();
   return (
     <Button
-      variant={"ghost"}
-      size={"icon"}
+      variant="ghost"
+      size="icon"
       className="h-8 w-8 cursor-pointer p-0"
-      onClick={() => {
-        setTheme(theme === "light" ? "dark" : "light");
-      }}
+      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
     >
       {theme === "light" ? <Sun /> : <Moon />}
     </Button>
