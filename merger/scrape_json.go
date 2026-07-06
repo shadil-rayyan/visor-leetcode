@@ -59,7 +59,7 @@ func scrapeJsonMain() {
 		outPath = "../web/src/data/problems.json"
 	}
 
-	skipTags := os.Getenv("SKIP_TAGS") != ""
+	skipTags := os.Getenv("SKIP_TAGS") == "true"
 
 	// 1. Walk companies (top-level dirs in ROOT_DIR)
 	entries, err := os.ReadDir(root)
@@ -216,7 +216,7 @@ func scrapeJsonMain() {
 				if !ok || entry.QuestionId == "" {
 					continue
 				}
-				var tags []string
+				tags := []string{}
 				for _, tt := range entry.TopicTags {
 					name := strings.TrimSpace(tt.Name)
 					if name != "" {
