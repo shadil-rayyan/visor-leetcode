@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { Button } from "~/components/ui/button";
 import { AgGridReact } from "ag-grid-react";
 import type {
   ColDef,
@@ -197,6 +198,8 @@ export default function AllProblems() {
 
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
 
+  const [selectedTitleRows, setSelectedTitleRows] = useState<Set<number>>(new Set());
+
   const allCompanies = useMemo(() => {
     const names = new Set<string>();
     for (const p of problems) {
@@ -253,6 +256,65 @@ export default function AllProblems() {
     [diffFilter, selectedTags, tagMatchMode, selectedCompanies],
   );
 
+  const handleRowSelected = useCallback((event: { node: { data: Problem; isSelected: () => boolean } }) => {
+    const node = event.node;
+    if (node.isSelected()) {
+      // ponytail: minimal selection, checkbox col added for AG Grid; only track IDs for memory efficiency
+      setSelectedTitleRows((prev) => new Set(prev).add(node.data.id));
+    } else {
+      setSelectedTitleRows((prev) => {
+        const next = new Set(prev);
+        next.delete(node.data.id);
+        return next;
+      });
+    }
+  }, []);
+
+  const copySelectedTitles = useCallback(() => {
+    const titles = Array.from(selectedTitleRows)
+      .map((id) => problems.find((p) => p.id === id)?.title)
+      .filter(Boolean)
+      .join("\n");
+    if (titles) {
+      navigator.clipboard.writeText(titles);
+    }
+  }, [selectedTitleRows, problems]);
+
+  const filteredNodes = useMemo(() => {
+    const visible: { data: Problem; setSelected: (value: boolean) => void }[] = [];
+    if (!gridRef.current?.api) return visible;
+    const nodeCache = gridRef.current.api.getRenderedNodes();
+    for (const node of nodeCache) {
+      const problem = node.data as Problem | undefined;
+      if (!problem) continue;
+      const passes = doesExternalFilterPass?.({ data: problem }) ?? true;
+      if (passes) visible.push(node as { data: Problem; setSelected: (value: boolean) => void });
+    }
+    return visible;
+  }, [search, diffFilter, selectedTags, tagMatchMode, selectedCompanies, doesExternalFilterPass]);
+
+  const allVisibleSelected = useMemo(() => {
+    const sel = new Set(selectedTitleRows);
+    return filteredNodes.length > 0 && filteredNodes.every((n) => sel.has(n.data.id));
+  }, [selectedTitleRows, filteredNodes]);
+
+  const handleSelectAllVisible = useCallback(() => {
+    if (!gridRef.current?.api) return;
+    const sel = allVisibleSelected;
+    
+    if (sel) {
+      gridRef.current.api.deselectAll();
+    } else {
+      const nodes: { data: Problem; setSelected?: (value: boolean) => void }[] = [];
+      gridRef.current.api.forEachNodeAfterFilter((node) => {
+        if (node.data) {
+          nodes.push(node as { data: Problem; setSelected?: (value: boolean) => void });
+        }
+      });
+      nodes.forEach((node) => node.setSelected?.(true));
+    }
+  }, [allVisibleSelected]);
+
   // column defs
   const columnDefs = useMemo<ColDef<Problem>[]>(
     () => [
@@ -262,6 +324,16 @@ export default function AllProblems() {
         width: 72,
         minWidth: 60,
         comparator: (a, b) => a - b,
+      },
+      {
+        field: "selected",
+        headerName: "",
+        width: 56,
+        sortable: false,
+        filter: false,
+        checkboxSelection: true,
+        headerCheckboxSelection: false,
+        pinned: "left",
       },
       {
         field: "title",
@@ -414,6 +486,40 @@ export default function AllProblems() {
         </div>
       </div>
 
+      {/* Selection Controls */}
+      <div className="px-6 py-2 border-b border-border bg-muted/5">
+        <div className="mx-auto sm:px-8 md:px-16 flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleSelectAllVisible()}
+            disabled={filteredNodes.length === 0}
+            className="text-xs"
+          >
+            {allVisibleSelected ? "Unselect All" : `Select All (${filteredNodes.length})`}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={copySelectedTitles}
+            disabled={selectedTitleRows.size === 0}
+          >
+            Copy Selected ({selectedTitleRows.size})
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedTitleRows(new Set());
+              gridRef.current?.api?.deselectAll();
+            }}
+            disabled={selectedTitleRows.size === 0}
+          >
+            Clear Selection
+          </Button>
+        </div>
+      </div>
+
       {/* AG Grid */}
       <div className="flex-1 px-6 py-4">
         <div className="max-w-9xl mx-auto" style={{ height: "calc(100vh - 260px)" }}>
@@ -444,6 +550,10 @@ export default function AllProblems() {
               doesExternalFilterPass={doesExternalFilterPass}
               getRowId={(params) => params.data.id.toString()}
               onGridReady={(params) => params.api.setGridOption("quickFilterText", search)}
+              rowSelection="multiple"
+              onRowSelected={handleRowSelected}
+              suppressRowClickSelection={false}
+              enableCellTextSelection={true}
             />
           </div>
         </div>
